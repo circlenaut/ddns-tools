@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Script to update dynamic DNS records at Dnsmadeeasy with HTTPS support.
 # Put your settings in settings.json in the same folder with the script 
@@ -20,11 +20,18 @@ import os
 import sys
 import requests
 import dns.resolver
+import json
+import re
+from urllib.parse import urlparse
+from urllib.parse import urlencode
+from urllib.parse import quote_plus
 
-logging.basicConfig(format='%(levelname)s: %(message)s')
 
-logger = logging.getLogger(__name__)
-
+# Set Constants, Get current directory and set DNS Made Easy Addresses
+DEFAULT_LOG_LEVEL = 'INFO'
+BASE_DIR = os.path.dirname(__file__)
+GET_DME_IP_URL = 'http://myip.dnsmadeeasy.com'
+DME_UPDATE_IP_URL = 'https://cp.dnsmadeeasy.com/servlet/updateip'
 
 def error(message):
     """
@@ -33,96 +40,146 @@ def error(message):
     logger.error(message)
     sys.exit(1)
 
-
 def check_ssl(url):
+    """
+    Check if a secure URL.
+    """
     try:
         requests.get(url, verify=True)
     except requests.exceptions.SSLError:
         error('The SSL certificate for {0} is not valid.'.format(url))
 
-
-def get_current_ip(url=None):
-    url = url or GET_IP_URL
+def check_password(_password):
+    """
+    Checks password for invalid URL characters.
+    """
+    invalid_characters = re.findall(r'[^a-zA-Z0-9@#$%^&+=]', _password)
+    if invalid_characters:
+        error("Invalid password: '{}' contains invalid characters: {}".format(_password, invalid_characters))
     try:
-        return requests.get(url).text.strip()
+        quote_plus(_password)
+    except UnicodeEncodeError:
+        error("Invalid password: '{}' contains invalid characters".format(_password))
+
+def get_current_ip(url):
+    """
+    Get the IP of a URL.
+    """
+    try:
+        url_ip = requests.get(url).text.strip()
+        logger.debug(f"Got ip {url_ip} for url {url}")
+        return url_ip
     except requests.ConnectionError:
         logger.debug(
-            'Could not get the current IP from {0}'.format(GET_IP_URL))
+            'Could not get the current IP from {0}'.format(GET_DME_IP_URL))
 
-
-def get_dns_ip(name=None, target='A'):
-    name = name or RECORD_NAME
+def get_dns_ip(name, target='A'):
+    """
+    Get the IP of a DNS record
+    """
     bits = name.split('.')
     while bits:
         try:
-            ns = str(dns.resolver.query('.'.join(bits), 'NS')[0])
+            ns = str(dns.resolver.resolve('.'.join(bits), 'NS')[0])
         except:
             bits.pop(0)
         else:
             ns = socket.gethostbyname(ns)
             resolver = dns.resolver.Resolver()
             resolver.nameservers = [ns]
-            q = resolver.query(name, target)
-            ip = str(q[0]).strip()
-            return ip
+            q = dns.resolver.resolve(name, target)
+            dns_ip = str(q[0]).strip()
+            logger.debug(f"Got ip {dns_ip} for DNS record {name}")
+            return dns_ip
     error('Could not get the authoritative name server for {0}.'.format(name))
 
-
-def update_ip_to_dns(ip, url=None):
-    url = url or UPDATE_IP_URL
+def update_ip_to_dns(ip, _username, _password, _record_id, url=None):
+    """
+    Update DNS Made Easy DNS entry
+    """
+    url = url or DME_UPDATE_IP_URL
     check_ssl(url)
+    check_password(_password)
     params = {
-        'username': USERNAME,
-        'password': PASSWORD,
-        'id': RECORD_ID,
+        'username': _username,
+        'password': _password,
+        'id': _record_id,
         'ip': ip,
     }
+    logger.debug(url + '?' + urlencode(params))
     return requests.get(url, params=params)
 
+def main():
 
-BASE_DIR = os.path.dirname(__file__)
+    try:
+        with open(os.path.join(BASE_DIR, 'settings.json')) as json_file:
+            settings = json.load(json_file)
+    except IOError:
+        error('No `settings.json` file. Create one from the '
+            '`settings.json.sample` file.')
+    except ValueError:
+        error('Invalid `settings.json` file. Check the `settings.json.sample` '
+            'file for an example.')
 
-try:
-    settings = json.loads(open(os.path.join(BASE_DIR, 'settings.json')).read())
-except IOError:
-    error('No `settings.json` file. Create one from the '
-          '`settings.json.sample` file.')
-except ValueError:
-    error('Invalid `settings.json` file. Check the `settings.json.sample` '
-          'file for an example.')
+    for record in settings:
+        # Check fields
+        pretty_record = json.dumps(record, indent=2)
+        if 'USERNAME' not in record:
+            error(f"settings.json record {pretty_record} is missing USERNAME field")
+        if 'PASSWORD' not in record:
+            error(f"settings.json record {pretty_record} is missing PASSWORD field")
+        if 'RECORD_ID' not in record:
+            error(f"settings.json record {pretty_record} is missing RECORD_ID field")
+        if 'RECORD_NAME' not in record:
+            error(f"settings.json record {pretty_record} is missing RECORD_NAME field")
 
-USERNAME = settings.get('USERNAME', None)
-PASSWORD = settings.get('PASSWORD', None)
-RECORD_ID = settings.get('RECORD_ID', None)
-RECORD_NAME = settings.get('RECORD_NAME', None)
-GET_IP_URL = settings.get('GET_IP_URL', 'http://myip.dnsmadeeasy.com')
-UPDATE_IP_URL = settings.get('UPDATE_IP_URL',
-                             'https://cp.dnsmadeeasy.com/servlet/updateip')
-LOG_LEVEL = settings.get('LOG_LEVEL', 'INFO')
+        username = record.get('USERNAME')
+        password = record.get('PASSWORD')
+        record_id = record.get('RECORD_ID')
+        record_name = record.get('RECORD_NAME')
 
-for opt in 'USERNAME', 'PASSWORD', 'RECORD_ID', 'RECORD_NAME':
-    if not locals().get(opt):
-        error('Missing `{0}` setting. Check `settings.json` file.'.format(opt))
+        # Update the IP for this record
+        current_ip = get_current_ip(GET_DME_IP_URL)
+        logger.debug(f"{current_ip} => {pretty_record}")
 
-try:
-    logger.setLevel(getattr(logging, LOG_LEVEL))
-except AttributeError:
-    error('Invalid `LOG_LEVEL` setting. Check `settings.json` file. Valid '
-          'log levels are: DEBUG, INFO, WARNING, ERROR, CRITICAL.')
+        if current_ip:
+            if current_ip != get_dns_ip(record_name):
+                logger.debug('Current IP differs with DNS record, attempting to '
+                'update DNS.')
+
+                logger.info(f"Setting IP {current_ip} for record: {record_id} - {record_name}")
+
+                if not urlparse(f"https://{record_name}").scheme:
+                    error('{0} is not a valid URL. Please check your settings.json file.'.format(record_name))
+
+                request = update_ip_to_dns(current_ip, username, password, record_id)
+
+                if request and request.text == 'success':
+                    logger.info('Updating record for {0} to {1} was '
+                                'succesful.'.format(record_name, current_ip))
+                else:
+                    # logger.debug(f"request: {request.text}")
+                    error('Updating record for {0} to {1} failed.'.format(
+                        record_name, current_ip))
+            else:
+                logger.info(
+                    'No changes for DNS record {0} to report.'.format(record_name))
+        else:
+            error('Unable to get current IP!')
 
 if __name__ == '__main__':
-    current_ip = get_current_ip()
-    if current_ip:
-        if current_ip != get_dns_ip():
-            logger.debug('Current IP differs with DNS record, attempting to '
-                         'update DNS.')
-            request = update_ip_to_dns(current_ip)
-            if request and request.text == 'success':
-                logger.info('Updating record for {0} to {1} was '
-                            'succesful.'.format(RECORD_NAME, current_ip))
-            else:
-                error('Updating record for {0} to {1} failed.'.format(
-                    RECORD_NAME, current_ip))
-        else:
-            logger.debug(
-                'No changes for DNS record {0} to report.'.format(RECORD_NAME))
+
+    try:
+        formatter = logging.Formatter(fmt='%(asctime)s %(levelname)-8s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        screen_handler = logging.StreamHandler(stream=sys.stdout)
+        screen_handler.setFormatter(formatter)
+
+        logger = logging.getLogger(__name__)
+
+        logger.setLevel(getattr(logging, DEFAULT_LOG_LEVEL))
+        logger.addHandler(screen_handler)
+    except AttributeError:
+        error('Invalid `LOG_LEVEL` setting. Check `settings.json` file. Valid '
+                'log levels are: DEBUG, INFO, WARNING, ERROR, CRITICAL.')
+
+    main()

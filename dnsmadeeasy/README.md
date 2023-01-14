@@ -22,6 +22,7 @@ As the DNS TIme-To-Live value sets the caching time for your record, your DNS up
 If you set the script to run from cron - for example - once per 10 minutes, then set your TTL to 600 seconds respectively.
 
 ### To-Do
+  * Incorporate PR #11: https://github.com/wyrmiyu/ddns-tools/pull/11
   * Implement debug-mode to include verbosity for error messages and traces
   * Replace inline glob-based confs with ConfigParser and/or argparse
   * Take account of TTL in the script, so that cron can run more frequently and TTL does not need to be too low
