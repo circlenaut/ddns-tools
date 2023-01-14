@@ -4,7 +4,8 @@
 	"PASSWORD": "dns_record_password",
 	"RECORD_ID": "dns_record_id",
 	"RECORD_NAME": "recordname.example.com"
-	},{
+	},
+	{
 		"USERNAME": "your_username2",
 		"PASSWORD": "dns_record_password2",
 		"RECORD_ID": "dns_record_id2",
