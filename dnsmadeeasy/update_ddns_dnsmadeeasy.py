@@ -22,13 +22,20 @@ import requests
 import dns.resolver
 import json
 import re
+# import subprocess
+import time
+# import psutil
+# import netifaces as ni
 from urllib.parse import urlparse
 from urllib.parse import urlencode
 from urllib.parse import quote_plus
+from requests import get
+from datetime import datetime
 
 
 # Set Constants, Get current directory and set DNS Made Easy Addresses
 DEFAULT_LOG_LEVEL = 'INFO'
+DEFAULT_INTERFACE = '"eth0"'
 BASE_DIR = os.path.dirname(__file__)
 GET_DME_IP_URL = 'http://myip.dnsmadeeasy.com'
 DME_UPDATE_IP_URL = 'https://cp.dnsmadeeasy.com/servlet/updateip'
@@ -95,7 +102,7 @@ def get_dns_ip(name, target='A'):
 
 def update_ip_to_dns(ip, _username, _password, _record_id, url=None):
     """
-    Update DNS Made Easy DNS entry
+    Update DNS Made Easy DNS entry's IP
     """
     url = url or DME_UPDATE_IP_URL
     check_ssl(url)
@@ -109,8 +116,17 @@ def update_ip_to_dns(ip, _username, _password, _record_id, url=None):
     logger.debug(url + '?' + urlencode(params))
     return requests.get(url, params=params)
 
-def main():
+def run_record_updater():
+    """
+    Run the DNS Made Easy record updater
+    """
 
+    # Get current time
+    now = datetime.now()
+    dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+    logger.info(f"Checking record on: {dt_string}")
+
+    # Update Record
     try:
         with open(os.path.join(BASE_DIR, 'settings.json')) as json_file:
             settings = json.load(json_file)
@@ -166,6 +182,31 @@ def main():
                     'No changes for DNS record {0} to report.'.format(record_name))
         else:
             error('Unable to get current IP!')
+
+def main():
+    # interfaces = psutil.net_if_addrs()
+    # logger.debug(interfaces)
+    # first_interface_name = list(interfaces.keys())[1]
+    # logger.debug(first_interface_name)
+
+    # first_interface_name = ni.interfaces()[1]
+    # logger.debug(first_interface_name)
+
+    # # interface = first_interface_name or DEFAULT_INTERFACE
+    # first_interface_name = list(interfaces.keys())[1]
+    # logger.debug(first_interface_name)
+
+    public_ip = get('https://api.ipify.org').content.decode('utf8')
+    logger.debug('My public IP address is: {}'.format(public_ip))
+
+    # Run the updater if the record has changed
+    current_ip = ""
+    while True:
+        public_ip = requests.get('https://api.ipify.org').content.decode('utf8')
+        if public_ip != current_ip:
+            current_ip = public_ip
+            run_record_updater()
+        time.sleep(10)
 
 if __name__ == '__main__':
 

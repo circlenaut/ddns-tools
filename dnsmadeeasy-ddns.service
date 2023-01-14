@@ -1,0 +1,21 @@
+[Unit]
+Description=Service for the DNS Made Easy DDNS script
+Wants=network-online.target
+After=syslog.target network.target nss-lookup.target network-online.target
+
+[Service]
+Environment="LD_LIBRARY_PATH=./linux64"
+User=ubuntu
+Group=ubuntu
+ExecStart=/home/ubuntu/ddns-tools/dnsmadeeasy/update_ddns_dnsmadeeasy.py
+User=ubuntu
+Group=ubuntu
+StandardOutput=journal
+Restart=on-failure
+WorkingDirectory=/home/ubuntu/ddns-tools/dnsmadeeasy/
+
+[Install]
+WantedBy=multi-user.target
+# enable to log to file
+# StandardOutput=append:/var/log/satisfactory.log
+# StandardError=append:/var/log/satisfactory.err
